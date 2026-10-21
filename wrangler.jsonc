@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dollar-outlook",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  // 화면 코드(src/app)를 public/app.js로 묶은 뒤 배포합니다.
+  "build": { "command": "npm run build" },
+  // 정적 화면(public)은 그대로 내보내고, 파일이 없는 경로(/api/*)만 Worker가 처리합니다.
+  "assets": { "directory": "./public" },
+  "observability": { "enabled": true }
+}

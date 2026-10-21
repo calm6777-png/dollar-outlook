@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1a1a19"/>
+  <path d="M96 344 L184 268 L248 304 L336 196 L416 156" fill="none" stroke="#e66767" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="416" cy="156" r="22" fill="#e66767"/>
+  <text x="96" y="160" font-family="system-ui, sans-serif" font-size="104" font-weight="700" fill="#f0efec">$₩</text>
+</svg>

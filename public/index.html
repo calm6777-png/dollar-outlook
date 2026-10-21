@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>달러선물 전망</title>
+  <meta name="description" content="달러/원 지표 종합 점수, 예상 밴드, 주요 가격대, 직전 16시 이후 변동을 한 화면에서 봅니다.">
+  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="달러전망">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script>
+    try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+  </script>
+  <script src="/vendor/lightweight-charts.standalone.production.js" defer></script>
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>달러선물 전망</h1>
+      <span class="sub">USD/KRW · 매일 16시(KST) 기준으로 맞춘 지표</span>
+    </div>
+    <div class="status">
+      <span id="updated" class="muted">불러오는 중…</span>
+      <button id="refresh" type="button">새로고침</button>
+      <button id="theme" type="button" aria-label="밝은/어두운 화면 전환" title="밝은/어두운 화면 전환">◐</button>
+    </div>
+  </header>
+
+  <div id="error" class="banner" hidden></div>
+
+  <main class="grid">
+    <section class="card hero" id="hero" aria-live="polite">
+      <div class="skeleton">시세와 지표를 계산하고 있습니다…</div>
+    </section>
+
+    <section class="card chart-card">
+      <div class="card-head">
+        <h2>달러/원 차트</h2>
+        <div class="seg" role="tablist" aria-label="차트 주기">
+          <button type="button" role="tab" data-tf="D" aria-selected="true">일봉</button>
+          <button type="button" role="tab" data-tf="60" aria-selected="false">1시간</button>
+          <button type="button" role="tab" data-tf="15" aria-selected="false">15분</button>
+        </div>
+      </div>
+      <div class="legend" id="chart-legend"></div>
+      <div class="ohlc" id="ohlc">&nbsp;</div>
+      <div id="chart" class="chart"></div>
+      <p class="note" id="chart-note"></p>
+    </section>
+
+    <section class="card" id="factors"></section>
+    <section class="card" id="overnight"></section>
+    <section class="card" id="levels"></section>
+    <section class="card wide" id="markets"></section>
+    <section class="card" id="calendar"></section>
+    <section class="card" id="news"></section>
+  </main>
+
+  <footer class="foot">
+    <p>이 화면은 공개 시세로 계산한 지표 모음이며 투자 권유가 아닙니다. 매매 판단과 결과의 책임은 본인에게 있습니다.</p>
+    <p>시세: Yahoo Finance(지연·오류 가능) · 일정: FXStreet·Forex Factory · 뉴스: Bing·Google 뉴스. 화면의 달러/원은 현물 시세로, 달러선물 가격과는 스왑포인트만큼 차이가 납니다.
+      모든 종목을 "그날 16:00 KST에 알 수 있던 마지막 가격"으로 맞춰 비교합니다(달러선물 주간장 마감 15:45 직후).</p>
+  </footer>
+</body>
+</html>
