@@ -39,7 +39,7 @@ const state = {
   loading: false,
   lastLoad: 0,
   lastSide: 0,
-  calendar: [] as CalendarEvent[],
+  calendar: null as CalendarEvent[] | null,
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -92,7 +92,7 @@ async function load(forceHist = false) {
     state.lastLoad = Date.now();
     render(o);
     showError(o.missing.length ? `일부 종목(${o.missing.join(", ")}) 시세를 받지 못해 빼고 계산했습니다.` : null);
-    $("updated").textContent = `${timeFmt.format(o.now)} 업데이트 · 시세 ${timeFmt.format(o.krw.time * 1000)}`;
+    $("updated").textContent = `${timeFmt.format(o.krw.time * 1000)} 기준`;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     showError(`시세를 불러오지 못했습니다(${msg}). 잠시 뒤 자동으로 다시 시도합니다.${state.outlook ? " 아래는 마지막으로 받은 값입니다." : ""}`);
@@ -108,7 +108,7 @@ async function loadSide() {
     getJSON<CalendarEvent[]>("/api/calendar"),
     getJSON<NewsItem[]>("/api/news"),
   ]);
-  if (calendar.status === "fulfilled") state.calendar = calendar.value;
+  state.calendar = calendar.status === "fulfilled" ? calendar.value : null;
   renderCalendar(calendar.status === "fulfilled" ? calendar.value : null);
   renderNews(news.status === "fulfilled" ? news.value : null);
 }
@@ -117,12 +117,11 @@ async function loadSide() {
 
 function render(o: Outlook) {
   renderHero(o);
-  renderFactors(o);
-  renderOvernight(o);
   renderLevels(o);
+  renderFactors(o);
   renderMarkets(o);
   renderChart(o, false);
-  if (state.calendar.length) renderCalendar(state.calendar);
+  if (state.calendar) renderCalendar(state.calendar);
 }
 
 function marketState(): string {
@@ -130,108 +129,115 @@ function marketState(): string {
   const m = kstMinutes(now);
   const dow = new Date((now + KST) * 1000).getUTCDay();
   if (dow === 0 || dow === 6) return "주말";
-  if (m < 8 * 60 + 45) return "달러선물 개장 전";
-  if (m < 15 * 60 + 45) return "달러선물 주간장 진행 중";
-  return "주간장 마감 후";
+  if (m < 8 * 60 + 45) return "개장 전";
+  if (m < 15 * 60 + 45) return "주간장 중";
+  return "주간장 마감";
+}
+
+const SEGMENTS = ["강한 하락", "하락", "중립", "상승", "강한 상승"];
+
+function segmentOf(v: number) {
+  if (v <= -50) return 0;
+  if (v <= -SIGNAL) return 1;
+  if (v < SIGNAL) return 2;
+  if (v < 50) return 3;
+  return 4;
 }
 
 function renderHero(o: Outlook) {
   const ref = o.krw.ref!;
   const sc = o.score;
-  const v = Math.max(-100, Math.min(100, sc.value));
+  const seg = segmentOf(sc.value);
+  const segTone = seg < 2 ? "down" : seg > 2 ? "up" : "flat";
   const r = o.range;
-  const pv = r.pivots;
-
-  // 예상 밴드 그림의 눈금 범위
-  const lo = Math.min(r.low, pv.s1, o.krw.price);
-  const hi = Math.max(r.high, pv.r1, o.krw.price);
-  const pad = (hi - lo) * 0.08 || 1;
-  const pos = (x: number) => (((x - (lo - pad)) / (hi - lo + 2 * pad)) * 100).toFixed(2);
 
   const bt = sc.backtest;
   const baseline = Math.max(bt.baseUpRate, 1 - bt.baseUpRate);
-  const weak = !(bt.hitRate > baseline + 0.03);
-  const btLine =
-    bt.signals >= 15 && finite(bt.hitRate)
-      ? `점수 ±${SIGNAL} 이상이었던 날의 다음 날 방향 적중률은 ${(bt.hitRate * 100).toFixed(0)}%입니다(최근 ${bt.days}거래일 중 ${bt.signals}번). 매일 한 방향으로만 찍었다면 ${(baseline * 100).toFixed(0)}%였으니${
-          weak ? ", 점수는 방향 예측보다 지금 분위기를 요약하는 용도로 보세요." : " 그보다 조금 낫습니다."
-        }`
-      : "과거 데이터가 부족해 점수의 적중률은 아직 계산하지 않았습니다.";
+  const reliable = bt.hitRate > baseline + 0.03;
+  const names = (list: typeof sc.factors) => list.slice(0, 2).map((f) => f.name.replace(/\(.*\)/, "")).join(", ");
+  const ups = sc.factors.filter((f) => f.contribution >= 3).sort((a, b) => b.contribution - a.contribution);
+  const downs = sc.factors.filter((f) => f.contribution <= -3).sort((a, b) => a.contribution - b.contribution);
+  const why = [
+    downs.length ? `<span>내리는 힘 <b>${esc(names(downs))}</b></span>` : "",
+    ups.length ? `<span>올리는 힘 <b>${esc(names(ups))}</b></span>` : "",
+    finite(bt.hitRate) && bt.signals >= 15
+      ? `<span>과거 적중률 <b>${(bt.hitRate * 100).toFixed(0)}%</b>${reliable ? "" : " · 참고용"}</span>`
+      : "",
+  ].join("");
 
   $("hero").innerHTML = `
-    <div class="hero-top">
-      <span class="label">달러/원 현재가</span>
-      <span class="badge">${esc(marketState())}</span>
+    <div class="hero-price">
+      <div class="k">달러/원 <span class="chip">${esc(marketState())}</span></div>
+      <div class="price num">${fmt(o.krw.price, 2)}</div>
+      <div class="chg ${tone(Number(ref.diff.toFixed(1)))}">${arrow(ref.diff)} ${fmt(Math.abs(ref.diff), 1)}원 (${signed(ref.pct, 2)}%)<span class="sub">${esc(ref.label)} 대비</span></div>
     </div>
-    <div class="price">${fmt(o.krw.price, 2)}</div>
-    <div class="delta ${tone(ref.diff)}">${arrow(ref.diff)} ${fmt(Math.abs(ref.diff), 1)}원 (${signed(ref.pct, 2)}%)
-      <span class="muted">${esc(ref.label)} ${fmt(ref.price, 1)}원 대비</span></div>
-
-    <div class="block">
-      <div class="score-row">
-        <span class="label">지표 종합 점수</span>
-        <span><span class="score-val ${sc.tone}">${signed(sc.value, 0)}</span>
-        <span class="score-label ${sc.tone}">${esc(sc.label)}</span></span>
-      </div>
-      <div class="gauge" role="img" aria-label="종합 점수 ${Math.round(v)}점, -100부터 100 사이">
-        <span class="fill ${v >= 0 ? "pos" : "neg"}" style="width:${Math.abs(v) / 2}%"></span>
-        <span class="zone" style="left:${50 - SIGNAL / 2}%"></span>
-        <span class="zone" style="left:${50 + SIGNAL / 2}%"></span>
-        <span class="zero"></span>
-      </div>
-      <div class="gauge-scale"><span>-100 하락 우위</span><span>중립</span><span>상승 우위 +100</span></div>
+    <div class="hero-signal">
+      <div class="k">오늘의 방향</div>
+      <div class="signal-label ${sc.tone}">${esc(sc.label.replace(" · 방향성 약함", ""))}<small>${signed(sc.value, 0)}점</small></div>
+      <div class="meter" role="img" aria-label="${esc(SEGMENTS[seg])} 구간">${SEGMENTS.map((_, i) => `<span class="${i === seg ? `on ${segTone}` : ""}"></span>`).join("")}</div>
+      <div class="meter-labels"><span>하락</span><span>중립</span><span>상승</span></div>
     </div>
-
-    <div class="block">
-      <div class="score-row">
-        <span class="label">오늘 예상 밴드</span>
-        <span class="num"><b>${fmt(r.low, 1)} ~ ${fmt(r.high, 1)}</b> 원</span>
-      </div>
-      <div class="band" role="img" aria-label="예상 밴드 ${fmt(r.low, 1)}원부터 ${fmt(r.high, 1)}원, 현재가 ${fmt(o.krw.price, 1)}원">
-        <span class="track"></span>
-        <span class="range" style="left:${pos(r.low)}%;width:${(+pos(r.high) - +pos(r.low)).toFixed(2)}%"></span>
-        <span class="tick" style="left:${pos(pv.s1)}%"><span>S1</span></span>
-        <span class="tick" style="left:${pos(pv.p)}%"><span>P</span></span>
-        <span class="tick" style="left:${pos(pv.r1)}%"><span>R1</span></span>
-        <span class="now" style="left:${pos(o.krw.price)}%"><span>${fmt(o.krw.price, 1)}</span></span>
-      </div>
-      <p class="note">${esc(r.baseLabel)} ${fmt(r.base, 1)}원 ± 세션 ATR(14)의 절반(${fmt(r.atr / 2, 1)}원)${o.krw.session ? ", 오늘 이미 찍은 고가·저가 포함" : ""}. 피벗은 ${esc(r.pivotFrom.slice(5).replace("-", "/"))} 세션 고가·저가·종가 기준.</p>
+    <div class="hero-band">
+      <div class="k">오늘 예상 범위</div>
+      <div class="band-nums num">${fmt(r.low, 1)}<span class="tilde">~</span>${fmt(r.high, 1)}</div>
+      <div class="band-sub sub">하루 평균 변동폭 ${fmt(r.atr, 1)}원 · ${esc(r.baseLabel)} ${fmt(r.base, 1)} 기준</div>
     </div>
+    ${why ? `<div class="why">${why}</div>` : ""}`;
+}
 
-    <div class="block">
-      <ul class="summary">${o.summary.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
-      <div class="metric-grid">
-        <div class="metric"><div class="k">RSI(14)</div><div class="v num">${fmt(o.tech.rsi, 0)}</div></div>
-        <div class="metric"><div class="k">MACD 히스토</div><div class="v num">${signed(o.tech.macdHist, 2)}</div></div>
-        <div class="metric"><div class="k">볼린저 %B</div><div class="v num">${fmt(o.tech.pctB, 2)}</div></div>
-        <div class="metric"><div class="k">세션 ATR</div><div class="v num">${fmt(o.tech.atr, 1)}원</div></div>
-      </div>
-      <p class="note">${esc(btLine)}</p>
-    </div>`;
+const LEVEL_NAMES: Record<string, string> = {
+  "2차 저항(R2)": "2차 저항",
+  "1차 저항(R1)": "1차 저항",
+  "피벗(P)": "피벗",
+  "1차 지지(S1)": "1차 지지",
+  "2차 지지(S2)": "2차 지지",
+  "20일선": "20일 이동평균",
+  "20일 고점": "20일 고점",
+  "20일 저점": "20일 저점",
+};
+
+function renderLevels(o: Outlook) {
+  const price = o.krw.price;
+  const rows: string[] = [];
+  let placed = false;
+  const now = `<div class="row lv now"><span class="name">현재가</span><span class="r">${fmt(price, 1)}</span><span></span></div>`;
+  for (const l of o.range.levels.filter((x) => x.name in LEVEL_NAMES)) {
+    if (!placed && l.value < price) {
+      rows.push(now);
+      placed = true;
+    }
+    rows.push(
+      `<div class="row lv ${l.value >= price ? "res" : "sup"}"><span class="name">${esc(LEVEL_NAMES[l.name])}</span><span class="r">${fmt(l.value, 1)}</span><span class="r dist">${signed(l.value - price, 1)}</span></div>`,
+    );
+  }
+  if (!placed) rows.push(now);
+  $("levels").innerHTML = `
+    <div class="panel-head"><h2>주요 가격대</h2><span class="sub">현재가와의 거리(원)</span></div>
+    ${rows.join("")}`;
 }
 
 function renderFactors(o: Outlook) {
   const rows = o.score.factors
     .map(
       (f) => `
-      <div class="factor" title="${esc(`${f.name}: 요인 점수 ${Math.round(f.score * 100)} × 비중 ${Math.round(f.weight * 100)}% = ${signed(f.contribution, 1)}점`)}">
-        <div class="name">${esc(f.name)}<small>비중 ${Math.round(f.weight * 100)}%</small></div>
-        <div class="pts ${tone(Math.round(f.contribution * 10))}">${signed(f.contribution, 1)}</div>
-        <div class="bar"><b class="${f.score >= 0 ? "pos" : "neg"}" style="width:${(Math.abs(f.score) * 50).toFixed(1)}%"></b></div>
-        <div class="detail">${esc(f.detail)}</div>
-      </div>`,
+      <details class="frow">
+        <summary>
+          <span class="name">${esc(f.name.replace(/\(.*\)/, ""))}</span>
+          <span class="dbar"><b class="${f.score >= 0 ? "pos" : "neg"}" style="width:${(Math.abs(f.score) * 50).toFixed(1)}%"></b></span>
+          <span class="pts ${tone(Math.round(f.contribution))}">${signed(f.contribution, 0)}</span>
+        </summary>
+        <p>${esc(f.detail)} · 비중 ${Math.round(f.weight * 100)}%</p>
+      </details>`,
     )
     .join("");
   $("factors").innerHTML = `
-    <div class="card-head"><h2>점수 구성</h2><span class="muted" style="font-size:12.5px">오른쪽 숫자 = 종합 점수에 보탠 점수</span></div>
-    <div class="axis-note"><span>◀ 달러/원 하락 쪽</span><span>상승 쪽 ▶</span></div>
-    ${rows}
-    <p class="note">막대는 각 요인 자체의 강도(-100~+100)입니다. 글로벌 달러·위험 회피·미 금리는 최근 5거래일 변화가 평소(120일) 대비 얼마나 큰지로 잽니다. 과열·침체는 반대로 작용합니다(과매수면 하락 쪽).</p>`;
+    <div class="panel-head"><h2>점수 구성</h2><span class="sub">누르면 근거</span></div>
+    ${rows}`;
 }
 
 function chgText(kind: string, chg: number) {
   if (kind === "bp") return `${signed(chg, 1)}bp`;
-  if (kind === "lvl") return `${signed(chg, 2)}p`;
+  if (kind === "lvl") return `${signed(chg, 2)}`;
   return `${signed(chg, 2)}%`;
 }
 
@@ -245,152 +251,56 @@ function priceText(kind: string, v: number, dp: number) {
   return kind === "bp" ? `${fmt(v, dp)}%` : fmt(v, dp);
 }
 
-function renderOvernight(o: Outlook) {
-  const ov = o.overnight;
-  if (!ov) {
-    $("overnight").innerHTML = `<div class="card-head"><h2>직전 16시 이후</h2></div><p class="note">16시 직후라 아직 비교할 변화가 없습니다.</p>`;
-    return;
-  }
-  const rows = ov.rows
-    .map(
-      (r) => `<tr>
-        <td>${esc(r.name)}</td>
-        <td class="r">${priceText(r.kind, r.to, r.dp)}</td>
-        <td class="r">${chgSpan(r.kind, r.chg)}</td>
-        <td class="r">${r.won == null ? '<span class="muted">–</span>' : `${signed(r.won, 1)}`}</td>
-      </tr>`,
-    )
-    .join("");
-  $("overnight").innerHTML = `
-    <div class="card-head"><h2>직전 16시 이후</h2><span class="muted" style="font-size:12.5px">${esc(ov.label)} → 지금</span></div>
-    <table>
-      <thead><tr><th>지표</th><th class="r">현재</th><th class="r">변화</th><th class="r">원화 영향(원)</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot>
-        <tr><td colspan="3">드라이버로 본 예상 변동</td><td class="r ${tone(ov.implied)}">${signed(ov.implied, 1)}</td></tr>
-        <tr><td colspan="3">실제 달러/원 변동</td><td class="r ${tone(ov.actual)}">${signed(ov.actual, 1)}</td></tr>
-      </tfoot>
-    </table>
-    <p class="note">원화 영향은 최근 120거래일의 16시 기준 일간 변화로 추정한 민감도(릿지 회귀, 설명력 R² ${fmt(ov.r2, 2)})를 곱한 값입니다. 실제 변동이 예상보다 크게 높으면 원화가 따로 약한 것이고, 낮으면 따로 강한 것입니다.</p>`;
-}
-
-function renderLevels(o: Outlook) {
-  const price = o.krw.price;
-  const kindName = { pivot: "피벗", ma: "이평", hl: "고저", band: "밴드" } as const;
-  const rows: string[] = [];
-  let placed = false;
-  const current = `<tr class="current"><td>현재가</td><td class="r">${fmt(price, 1)}</td><td class="r">0.0</td></tr>`;
-  for (const l of o.range.levels) {
-    if (!placed && l.value < price) {
-      rows.push(current);
-      placed = true;
-    }
-    rows.push(
-      `<tr><td>${esc(l.name)}<span class="kind">${kindName[l.kind]}</span></td><td class="r">${fmt(l.value, 1)}</td><td class="r muted">${signed(l.value - price, 1)}</td></tr>`,
-    );
-  }
-  if (!placed) rows.push(current);
-  $("levels").innerHTML = `
-    <div class="card-head"><h2>주요 가격대</h2></div>
-    <table class="ladder">
-      <thead><tr><th>가격대</th><th class="r">원</th><th class="r">거리</th></tr></thead>
-      <tbody>${rows.join("")}</tbody>
-    </table>
-    <p class="note">고저·이평·밴드는 16시 기준 세션 일봉으로 계산합니다.</p>`;
-}
-
-function sparkSvg(points: { d: string; c: number }[]) {
-  if (points.length < 2) return "";
-  const vals = points.map((p) => p.c);
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const span = max - min || 1;
-  const xs = (i: number) => (i / (points.length - 1)) * 100;
-  const ys = (v: number) => 34 - ((v - min) / span) * 32;
-  const d = points.map((p, i) => `${i ? "L" : "M"}${xs(i).toFixed(2)},${ys(p.c).toFixed(2)}`).join("");
-  return `<svg viewBox="0 0 100 36" preserveAspectRatio="none" aria-hidden="true">
-    <path d="${d}" fill="none" stroke="var(--ink-2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
-    <line class="hair" x1="0" x2="0" y1="0" y2="36" stroke="var(--muted)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>
-  </svg>`;
-}
-
 function renderMarkets(o: Outlook) {
-  const tiles = o.markets
+  const ov = o.overnight;
+  let implied = "";
+  if (ov) {
+    const gap = ov.actual - ov.implied;
+    const same = Math.abs(gap) < Math.max(1.5, o.range.atr * 0.15);
+    implied = `<div class="implied">
+      <span>주변 시장으로 본 예상 <b class="${tone(Number(ov.implied.toFixed(1)))}">${signed(ov.implied, 1)}원</b></span>
+      <span>실제 <b class="${tone(Number(ov.actual.toFixed(1)))}">${signed(ov.actual, 1)}원</b></span>
+      <span>${same ? "예상과 비슷" : gap < 0 ? "원화가 따로 강함" : "원화가 따로 약함"}</span>
+    </div>`;
+  }
+  const rows = o.markets
     .map(
-      (m) => `
-      <div class="tile" data-key="${esc(m.key)}">
-        <div class="t-name">${esc(m.name)}</div>
-        <div class="t-val num">${priceText(m.kind, m.price, m.dp)}</div>
-        <div class="t-chg">${chgSpan(m.kind, m.chg1d)}<span class="muted">5일 ${chgSpan(m.kind, m.chg5d)}</span></div>
-        ${sparkSvg(m.spark)}
-        <div class="t-corr">달러/원과 60일 상관 ${signed(m.corr60, 2)}</div>
-      </div>`,
+      (m) =>
+        `<div class="row mk"><span>${esc(m.name)}</span><span class="r">${priceText(m.kind, m.price, m.dp)}</span><span class="r">${chgSpan(m.kind, m.chg1d)}</span></div>`,
     )
     .join("");
   $("markets").innerHTML = `
-    <div class="card-head"><h2>주변 시장</h2><span class="muted" style="font-size:12.5px">변화는 직전 16시 대비 · 선은 최근 30거래일 16시 값</span></div>
-    <div class="tiles">${tiles}</div>
-    <p class="note">상관은 16시 기준 일간 변화끼리의 상관계수입니다. +면 같은 방향(예: 달러인덱스↑ → 달러/원↑), -면 반대 방향(예: 코스피↑ → 달러/원↓)으로 움직여 왔다는 뜻입니다.</p>`;
+    <div class="panel-head"><h2>주변 시장</h2><span class="sub">${esc(o.krw.ref?.label ?? "")} 이후</span></div>
+    ${implied}${rows}`;
+}
 
-  // 선 위를 가리키면 그날 값과 날짜를 보여 줍니다.
-  for (const tile of $("markets").querySelectorAll<HTMLElement>(".tile")) {
-    const m = o.markets.find((x) => x.key === tile.dataset.key)!;
-    const svg = tile.querySelector("svg");
-    if (!svg) continue;
-    const val = tile.querySelector<HTMLElement>(".t-val")!;
-    const chg = tile.querySelector<HTMLElement>(".t-chg")!;
-    const hair = svg.querySelector<SVGLineElement>(".hair")!;
-    const original = [val.innerHTML, chg.innerHTML];
-    svg.addEventListener("pointermove", (e) => {
-      const box = svg.getBoundingClientRect();
-      const i = Math.round(((e.clientX - box.left) / box.width) * (m.spark.length - 1));
-      const p = m.spark[Math.max(0, Math.min(m.spark.length - 1, i))];
-      const x = ((Math.max(0, Math.min(m.spark.length - 1, i)) / (m.spark.length - 1)) * 100).toFixed(2);
-      hair.setAttribute("x1", x);
-      hair.setAttribute("x2", x);
-      hair.setAttribute("visibility", "visible");
-      val.textContent = priceText(m.kind, p.c, m.dp);
-      chg.innerHTML = `<span class="muted">${esc(p.d.slice(5).replace("-", "/"))} 16시</span>`;
-    });
-    svg.addEventListener("pointerleave", () => {
-      hair.setAttribute("visibility", "hidden");
-      [val.innerHTML, chg.innerHTML] = original;
-    });
-  }
+const weekday = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", weekday: "short" });
+
+function whenText(ms: number) {
+  const days = Math.round((Date.parse(dayKey.format(ms)) - Date.parse(dayKey.format(Date.now()))) / 86400000);
+  const day = days === 0 ? "오늘" : days === 1 ? "내일" : weekday.format(ms);
+  return `${day} ${timeFmt.format(ms)}`;
 }
 
 function renderCalendar(events: CalendarEvent[] | null) {
   const el = $("calendar");
+  const head = `<div class="panel-head"><h2>다가오는 일정</h2><span class="sub">한국 시간</span></div>`;
   if (!events) {
-    el.innerHTML = `<div class="card-head"><h2>경제지표 일정</h2></div><p class="note">일정을 불러오지 못했습니다.</p>`;
+    el.innerHTML = `${head}<p class="empty">일정을 불러오지 못했습니다.</p>`;
     return;
   }
-  const now = Date.now();
-  const groups = new Map<string, CalendarEvent[]>();
-  for (const e of events) {
-    const k = dayKey.format(e.time);
-    groups.set(k, [...(groups.get(k) ?? []), e]);
-  }
-  const html = [...groups.values()]
-    .map(
-      (list) => `
-      <div class="day-head">${esc(dayFmt.format(list[0].time))}</div>
-      ${list
-        .map((e) => {
-          const meta = [e.forecast && `예상 ${e.forecast}`, e.previous && `이전 ${e.previous}`].filter(Boolean).join(" · ");
-          return `<div class="event${e.time < now ? " past" : ""}">
-            <span class="time">${timeFmt.format(e.time)}</span>
-            <span class="title"><span class="muted">${esc(e.countryKo)}</span> ${esc(e.titleKo ?? e.title)}${e.titleKo ? `<small>${esc(e.title)}</small>` : ""}</span>
-            <span class="impact ${e.impact === "High" ? "high" : "medium"}"><i></i>${e.impact === "High" ? "중요도 높음" : "중간"}</span>
-            ${meta ? `<span class="meta">${esc(meta)}</span>` : ""}
-          </div>`;
-        })
-        .join("")}`,
-    )
+  const upcoming = events.filter((e) => e.time >= Date.now() - 30 * 60_000).slice(0, 8);
+  const rows = upcoming
+    .map((e) => {
+      const fc = e.forecast ? `예상 ${e.forecast}` : e.previous ? `이전 ${e.previous}` : "";
+      return `<div class="row ev">
+          <span class="when">${esc(whenText(e.time))}</span>
+          <span class="what">${e.impact === "High" ? '<i class="dot" title="중요" aria-label="중요"></i>' : ""}${esc(e.titleKo ?? e.title)}<small>${esc(e.countryKo)}</small></span>
+          <span class="fc">${esc(fc)}</span>
+        </div>`;
+    })
     .join("");
-  el.innerHTML = `
-    <div class="card-head"><h2>경제지표 일정</h2><span class="muted" style="font-size:12.5px">한국 시간 · 미국·중국 중심</span></div>
-    ${html || '<p class="note">앞으로 일주일 안에 큰 일정이 없습니다.</p>'}`;
+  el.innerHTML = head + (rows || '<p class="empty">앞으로 일주일 안에 큰 일정이 없습니다.</p>');
 }
 
 function ago(ms: number) {
@@ -402,19 +312,21 @@ function ago(ms: number) {
 
 function renderNews(items: NewsItem[] | null) {
   const el = $("news");
+  const head = `<div class="panel-head"><h2>환율 뉴스</h2></div>`;
   if (!items) {
-    el.innerHTML = `<div class="card-head"><h2>환율 뉴스</h2></div><p class="note">뉴스를 불러오지 못했습니다.</p>`;
+    el.innerHTML = `${head}<p class="empty">뉴스를 불러오지 못했습니다.</p>`;
     return;
   }
-  el.innerHTML = `
-    <div class="card-head"><h2>환율 뉴스</h2><span class="muted" style="font-size:12.5px">'원달러 환율' 최신 기사</span></div>
-    <ul class="news-list">${items
+  el.innerHTML =
+    head +
+    items
       .filter((n) => /^https?:\/\//.test(n.link))
+      .slice(0, 5)
       .map(
-        (n) => `<li><a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>
-        <div class="meta">${esc(n.source)}${n.time ? ` · ${ago(n.time)}` : ""}</div></li>`,
+        (n) => `<div class="row nw"><a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>
+        <div class="meta">${esc(n.source)}${n.time ? ` · ${ago(n.time)}` : ""}</div></div>`,
       )
-      .join("")}</ul>`;
+      .join("");
 }
 
 // ---------- 차트 ----------
@@ -532,20 +444,14 @@ function renderChart(o: Outlook, tfChanged: boolean) {
   }
   showOHLC(null);
 
-  const unit = tf === "D" ? "일" : "봉";
-  const sw = (cls: string, color: string, text: string) => `<span><i class="${cls}" style="background:${color}"></i>${text}</span>`;
+  const unit = tf === "D" ? "일선" : "봉 평균";
+  const sw = (color: string, text: string) => `<span><i style="background:${color}"></i>${text}</span>`;
   $("chart-legend").innerHTML = [
-    sw("sw-candle", "var(--up)", "상승"),
-    sw("sw-candle", "var(--down)", "하락"),
-    sw("sw-line", "var(--ma20)", `20${unit} 이동평균`),
-    sw("sw-line", "var(--ma60)", `60${unit} 이동평균`),
-    sw("sw-line", "var(--band)", "볼린저밴드(20, 2)"),
-    tf === "D" ? "" : sw("sw-line", "var(--pivot)", "오늘 피벗(R2~S2)"),
+    sw("var(--ma20)", `20${unit}`),
+    sw("var(--ma60)", `60${unit}`),
+    sw("var(--band)", "볼린저밴드"),
+    tf === "D" ? "" : sw("var(--pivot)", "오늘 피벗"),
   ].join("");
-  $("chart-note").textContent =
-    tf === "D"
-      ? "일봉 = 서울 세션(09:00~16:00 KST). 밤사이 움직임은 다음 봉 시가와의 간격으로 보입니다. 오늘 피벗선은 1시간·15분 화면에 표시합니다."
-      : `한국 시간 기준 ${tf === "60" ? "1시간" : "15분"}봉(24시간). 손가락이나 마우스로 끌어 지난 구간을 볼 수 있습니다.`;
 }
 
 // ---------- 시작 ----------

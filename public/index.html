@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>달러선물 전망</title>
-  <meta name="description" content="달러/원 지표 종합 점수, 예상 밴드, 주요 가격대, 직전 16시 이후 변동을 한 화면에서 봅니다.">
-  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="달러/원 현재가, 오늘의 방향, 예상 범위, 주요 가격대를 한 화면에서 봅니다.">
+  <meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="달러전망">
   <link rel="manifest" href="/manifest.webmanifest">
@@ -20,51 +20,57 @@
 </head>
 <body>
   <header class="top">
-    <div class="brand">
-      <h1>달러선물 전망</h1>
-      <span class="sub">USD/KRW · 매일 16시(KST) 기준으로 맞춘 지표</span>
-    </div>
+    <h1>달러선물 전망</h1>
     <div class="status">
-      <span id="updated" class="muted">불러오는 중…</span>
-      <button id="refresh" type="button">새로고침</button>
-      <button id="theme" type="button" aria-label="밝은/어두운 화면 전환" title="밝은/어두운 화면 전환">◐</button>
+      <span id="updated">불러오는 중…</span>
+      <button id="refresh" type="button" class="icon" aria-label="새로고침" title="새로고침">↻</button>
+      <button id="theme" type="button" class="icon" aria-label="밝은/어두운 화면 전환" title="밝은/어두운 화면 전환">◐</button>
     </div>
   </header>
 
   <div id="error" class="banner" hidden></div>
 
-  <main class="grid">
-    <section class="card hero" id="hero" aria-live="polite">
-      <div class="skeleton">시세와 지표를 계산하고 있습니다…</div>
+  <main class="page">
+    <section class="hero" id="hero" aria-live="polite">
+      <p class="loading">시세를 불러오고 있습니다…</p>
     </section>
 
-    <section class="card chart-card">
-      <div class="card-head">
-        <h2>달러/원 차트</h2>
+    <section class="panel chart-panel" aria-label="달러/원 차트">
+      <div class="chart-top">
         <div class="seg" role="tablist" aria-label="차트 주기">
           <button type="button" role="tab" data-tf="D" aria-selected="true">일봉</button>
           <button type="button" role="tab" data-tf="60" aria-selected="false">1시간</button>
           <button type="button" role="tab" data-tf="15" aria-selected="false">15분</button>
         </div>
+        <div class="legend" id="chart-legend"></div>
       </div>
-      <div class="legend" id="chart-legend"></div>
       <div class="ohlc" id="ohlc">&nbsp;</div>
       <div id="chart" class="chart"></div>
-      <p class="note" id="chart-note"></p>
     </section>
 
-    <section class="card" id="factors"></section>
-    <section class="card" id="overnight"></section>
-    <section class="card" id="levels"></section>
-    <section class="card wide" id="markets"></section>
-    <section class="card" id="calendar"></section>
-    <section class="card" id="news"></section>
+    <div class="cols">
+      <section class="panel" id="levels"></section>
+      <section class="panel" id="factors"></section>
+      <section class="panel" id="markets"></section>
+      <section class="panel" id="calendar"></section>
+    </div>
+
+    <section class="panel" id="news"></section>
+
+    <details class="panel method">
+      <summary>계산 방법과 출처</summary>
+      <ul>
+        <li><b>기준 시각</b> — 모든 종목을 그날 16:00(한국 시간)에 알 수 있던 마지막 가격으로 맞춰 비교합니다. 달러선물 주간장 마감(15:45) 직후입니다. 일봉은 09:00~16:00 서울 세션입니다.</li>
+        <li><b>오늘의 방향</b> — 추세·모멘텀·과열·글로벌 달러·위험 회피·미 금리·16시 이후 변동을 -100~+100 점으로 더한 값입니다. ±20 이상이면 상승/하락 우위, ±50 이상이면 강한 우위로 부릅니다.</li>
+        <li><b>적중률</b> — 같은 규칙을 지난 1년에 적용했을 때 다음 날 방향을 맞힌 비율입니다. 매일 한 방향만 찍은 경우보다 낫지 않으면 '참고용'으로 표시합니다.</li>
+        <li><b>예상 범위</b> — 오늘 09시 시가(장 전에는 현재가) ± 최근 14일 하루 평균 변동폭(ATR)의 절반. 이미 찍은 고가·저가는 포함합니다.</li>
+        <li><b>주요 가격대</b> — 피벗은 직전 세션 고가·저가·종가로 계산한 오늘의 저항·지지선입니다.</li>
+        <li><b>주변 시장 기준 예상</b> — 최근 120일 동안 달러/원이 달러인덱스·위안·나스닥·미 금리에 얼마나 반응했는지로, 16시 이후 그 시장들의 움직임을 원화 변동으로 바꾼 값입니다.</li>
+        <li><b>출처</b> — 시세 Yahoo Finance(지연·오류 가능), 일정 FXStreet, 뉴스 Bing·Google. 화면의 달러/원은 현물이라 달러선물과는 스왑포인트만큼 차이가 납니다.</li>
+      </ul>
+    </details>
   </main>
 
-  <footer class="foot">
-    <p>이 화면은 공개 시세로 계산한 지표 모음이며 투자 권유가 아닙니다. 매매 판단과 결과의 책임은 본인에게 있습니다.</p>
-    <p>시세: Yahoo Finance(지연·오류 가능) · 일정: FXStreet·Forex Factory · 뉴스: Bing·Google 뉴스. 화면의 달러/원은 현물 시세로, 달러선물 가격과는 스왑포인트만큼 차이가 납니다.
-      모든 종목을 "그날 16:00 KST에 알 수 있던 마지막 가격"으로 맞춰 비교합니다(달러선물 주간장 마감 15:45 직후).</p>
-  </footer>
+  <footer class="foot">공개 시세로 계산한 참고 지표이며 투자 권유가 아닙니다. 매매 판단과 결과의 책임은 본인에게 있습니다.</footer>
 </body>
 </html>

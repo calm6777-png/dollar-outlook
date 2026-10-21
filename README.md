@@ -21,7 +21,7 @@ npm run deploy         # → https://dollar.calm6777.workers.dev
 ```
 
 - 주소는 Worker 이름(`wrangler.jsonc`의 `name`)으로 정해지고, 다시 배포해도 바뀌지 않습니다.
-- 내 도메인을 쓰려면 Cloudflare 대시보드 → Workers → dollar-outlook → Settings → Domains & Routes에서 추가합니다.
+- 내 도메인을 쓰려면 Cloudflare 대시보드 → Workers → dollar → Settings → Domains & Routes에서 추가합니다.
 - 비밀값·DB가 필요 없습니다. 무료 플랜으로 충분합니다(Worker는 시세를 해석하지 않고 중계만 하므로 CPU를 거의 쓰지 않습니다).
 - 혼자만 보고 싶다면 Cloudflare Zero Trust의 Access로 이메일 로그인을 걸 수 있습니다.
 
