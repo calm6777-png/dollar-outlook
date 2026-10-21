@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "dollar-outlook",
+  "name": "dollar",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-09-01",
   // 화면 코드(src/app)를 public/app.js로 묶은 뒤 배포합니다.

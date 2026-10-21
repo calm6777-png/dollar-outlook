@@ -17,7 +17,7 @@ npm run typecheck
 
 ```bash
 npx wrangler login     # 처음 한 번, 브라우저에서 Cloudflare 계정 승인
-npm run deploy         # → https://dollar-outlook.<내 서브도메인>.workers.dev
+npm run deploy         # → https://dollar.calm6777.workers.dev
 ```
 
 - 주소는 Worker 이름(`wrangler.jsonc`의 `name`)으로 정해지고, 다시 배포해도 바뀌지 않습니다.
