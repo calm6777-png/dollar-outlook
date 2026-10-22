@@ -19,19 +19,15 @@ interface Entry {
 }
 
 // 같은 Worker 인스턴스 안에서 재사용하는 메모리 캐시. 갱신에 실패하면 마지막 값을 대신 씁니다.
+// 받아 둔 값만 요청끼리 나눠 씁니다. 진행 중인 fetch(Promise)를 다른 요청이 같이 기다리게 하면,
+// 처음 요청이 끊길 때(예: 새로고침) 나머지 요청이 영원히 응답하지 못하므로 그렇게 하지 않습니다.
 const memo = new Map<string, Entry>();
-const pending = new Map<string, Promise<unknown>>();
 
 async function cached<T>(key: string, ttlSec: number, load: () => Promise<T>): Promise<T> {
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < ttlSec * 1000) return hit.value as T;
-  let job = pending.get(key) as Promise<T> | undefined;
-  if (!job) {
-    job = load().finally(() => pending.delete(key));
-    pending.set(key, job);
-  }
   try {
-    const value = await job;
+    const value = await load();
     memo.set(key, { at: Date.now(), value });
     return value;
   } catch (error) {
@@ -49,6 +45,7 @@ async function yahoo(sym: string, plan: Plan): Promise<string> {
       const res = await fetch(url, {
         headers: { "User-Agent": UA, Accept: "application/json" },
         cf: { cacheTtl: ttl, cacheEverything: true },
+        signal: AbortSignal.timeout(8000),
       });
       const text = await res.text();
       if (!res.ok || !text.startsWith('{"chart":{"result":[')) throw new Error(`${sym} HTTP ${res.status}`);

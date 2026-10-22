@@ -54,7 +54,7 @@ const dayFmt = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", month:
 const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" });
 
 async function getJSON<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error || `HTTP ${res.status}`);

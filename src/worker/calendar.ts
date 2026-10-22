@@ -176,7 +176,10 @@ async function fromFxstreet(now: number): Promise<CalendarEvent[]> {
   const iso = (ms: number) => new Date(ms).toISOString().slice(0, 19) + "Z";
   const countries = Object.keys(FXS_COUNTRY).map((c) => `countries=${c}`).join("&");
   const url = `https://calendar-api.fxstreet.com/en/api/v1/eventDates/${iso(now - BEFORE)}/${iso(now + AHEAD)}?volatilities=HIGH&volatilities=MEDIUM&${countries}`;
-  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json", Referer: "https://www.fxstreet.com/" } });
+  const res = await fetch(url, {
+    headers: { "User-Agent": UA, Accept: "application/json", Referer: "https://www.fxstreet.com/" },
+    signal: AbortSignal.timeout(6000),
+  });
   if (!res.ok) throw new Error(`FXStreet HTTP ${res.status}`);
   const list = (await res.json()) as FxsEvent[];
   if (!Array.isArray(list)) throw new Error("FXStreet 응답 형식이 다릅니다");
@@ -205,7 +208,7 @@ async function fromForexFactory(now: number): Promise<CalendarEvent[]> {
   const feeds = ["thisweek", "nextweek"].map((w) => `https://nfs.faireconomy.media/ff_calendar_${w}.json`);
   const [thisWeek, nextWeek] = await Promise.all(
     feeds.map(async (url) => {
-      const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" } });
+      const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(6000) });
       if (!res.ok) throw new Error(`Forex Factory HTTP ${res.status}`);
       return (await res.json()) as FfEvent[];
     }).map((p, i) => (i === 0 ? p : p.catch(() => [] as FfEvent[]))), // 다음 주 파일은 주 후반에만 생깁니다.
